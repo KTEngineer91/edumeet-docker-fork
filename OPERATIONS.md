@@ -2,6 +2,8 @@
 
 Deploy path on server: `/root/edumeet-docker`
 
+**Production files in git:** [`production/stream/`](production/stream/) (matches live Breezeshot server). Root `docker-compose.yml` is the fork’s generic layout; use `production/stream/` for stream.breezeshot.com.
+
 ## Site down?
 
 ```bash
@@ -43,7 +45,14 @@ Or use `scripts/reload-nginx-after-cert.sh` as Certbot `deploy_hook`.
 
 ## Proxy rule
 
-Do **not** set `entrypoint: [/bin/sh, -c]` and `command: [sh, -c, ...]` together on `proxy`. Use the `command` already in this repo’s `docker-compose.yml`.
+Do **not** set `entrypoint: [/bin/sh, -c]` and `command: [sh, -c, ...]` together on `proxy`. Production uses `nginx.conf.rendered` mounted read-only and:
+
+```yaml
+command:
+  - /bin/sh
+  - -c
+  - nginx -t && exec nginx -g "daemon off;"
+```
 
 ---
 
@@ -52,5 +61,5 @@ Do **not** set `entrypoint: [/bin/sh, -c]` and `command: [sh, -c, ...]` together
 ```bash
 cd /root/edumeet-docker
 git pull
-docker compose up -d --no-deps proxy    # only if compose changed
+docker compose up -d --no-deps proxy    # only if compose/nginx changed
 ```

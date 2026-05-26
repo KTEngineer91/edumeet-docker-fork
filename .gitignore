@@ -13,3 +13,20 @@
 !/configs/nginx/*.example.*
 !/configs/redis/*.example.*
 /images
+
+# Secrets and local deploy state
+.env
+.env.*
+!.env.example
+!.env.production.example
+!**/.env.production.example
+
+# TLS material (keep on server only)
+certbot/conf/live/
+certbot/conf/archive/
+certbot/conf/accounts/
+
+# Backups and rendered nginx snapshots
+*.bak
+nginx.conf.rendered.bak
+keycloak-data/
