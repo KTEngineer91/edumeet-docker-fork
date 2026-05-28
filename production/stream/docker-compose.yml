@@ -1,0 +1,136 @@
+services:
+  certbot:
+    image: certbot/certbot
+    restart: unless-stopped
+    volumes:
+    - ./certbot/conf:/etc/letsencrypt
+    - ./certbot/www:/var/www/certbot
+    entrypoint: /bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h &
+      wait $${!}; done;'
+  proxy:
+    image: nginx
+    restart: unless-stopped
+    volumes:
+    - ./certbot/conf:/etc/letsencrypt
+    - ./certbot/www:/var/www/certbot
+    - ./nginx.conf.rendered:/etc/nginx/nginx.conf:ro
+    ports:
+    - 80:80
+    - 443:443
+    links:
+    - keycloak:keycloak
+    - edumeet-room-server:edumeet-room-server
+    - edumeet-management-server:edumeet-management-server
+    - edumeet-client:edumeet-client
+    environment:
+    - MAIN_DOMAIN=${MAIN_DOMAIN}
+    - MEDIA_DOMAIN=${MEDIA_DOMAIN}
+    - LISTEN_IP=${LISTEN_IP}
+    command:
+    - /bin/sh
+    - -c
+    - nginx -t && exec nginx -g "daemon off;"
+  turn:
+    image: coturn/coturn
+    restart: unless-stopped
+    network_mode: host
+    command: '-n --min-port=50000 --max-port=60000 --realm=${MEDIA_DOMAIN} --external-ip=${EXTERNAL_IP}
+      --listening-ip=${LISTEN_IP} --fingerprint --use-auth-secret --static-auth-secret=${MEDIA_SECRET}
+      --no-tls --no-dtls --no-multicast-peers --no-cli
+
+      '
+  edumeet-room-server:
+    env_file: .env
+    restart: unless-stopped
+    volumes:
+    - ./configs/server:/usr/src/app/config
+    container_name: edumeet-room-server
+    build:
+      args:
+      - GIT_SERVER=${GIT_SERVER}
+      - REPOSITORY=${REPOSITORY}
+      - EDUMEET_SERVER=${EDUMEET_SERVER}
+      - BRANCH_SERVER=${BRANCH_SERVER}
+      context: .
+      dockerfile: Dockerfiles/Dockerfile-room-server
+    image: ${REPOSITORY}/${EDUMEET_SERVER}:${TAG}
+    links:
+    - edumeet-management-server:mgmt
+  edumeet-client:
+    env_file: .env
+    volumes:
+    - ./configs/app:/app/config
+    container_name: edumeet-client
+    build:
+      args:
+      - GIT_SERVER=${GIT_SERVER}
+      - REPOSITORY=${REPOSITORY}
+      - EDUMEET_CLIENT=edumeet-client-fork
+      - BRANCH_CLIENT=${BRANCH_CLIENT}
+      context: .
+      dockerfile: Dockerfiles/Dockerfile-client
+    image: ${REPOSITORY}/${EDUMEET_CLIENT}:${TAG}
+  edumeet-media-node:
+    env_file: .env
+    container_name: edumeet-media-node
+    build:
+      args:
+      - GIT_SERVER=${GIT_SERVER}
+      - REPOSITORY=${REPOSITORY}
+      - EDUMEET_MN_SERVER=${EDUMEET_MN_SERVER}
+      - BRANCH_MN_SERVER=${BRANCH_MN_SERVER}
+      - LISTEN_IP=${LISTEN_IP}
+      - MN_EXTRA_PARAMS=${MN_EXTRA_PARAMS}
+      context: .
+      dockerfile: Dockerfiles/Dockerfile-media-node
+    image: ${REPOSITORY}/${EDUMEET_MN_SERVER}:${TAG}
+    security_opt:
+    - seccomp:unconfined
+    network_mode: host
+    command: 'DEBUG=* --listenPort ${LISTEN_PORT} --rtcMinPort ${RTC_MIN_PORT} --rtcMaxPort
+      ${RTC_MAX_PORT} --ip ${LISTEN_IP} --secret ${MEDIA_SECRET}  --announcedIp ${EXTERNAL_IP}
+
+      '
+  edumeet-db:
+    env_file: .env
+    image: postgres:14.1-alpine
+    container_name: edumeet-db
+    restart: always
+    volumes:
+    - edumeet-db:/var/lib/postgresql/data
+  edumeet-management-server:
+    env_file: .env
+    container_name: edumeet-management-server
+    volumes:
+    - ./configs/mgmt:/usr/src/app/config
+    - ./configs/_mgmt_pwchange/202310300000000_migrate.ts:/usr/src/app/migrations/202310300000000_migrate.ts
+    build:
+      args:
+      - GIT_SERVER=${GIT_SERVER}
+      - REPOSITORY=${REPOSITORY}
+      - EDUMEET_MGMT_SERVER=${EDUMEET_MGMT_SERVER}
+      - BRANCH_MGMT_SERVER=${BRANCH_MGMT_SERVER}
+      - NODE_TLS_REJECT_UNAUTHORIZED=${NODE_TLS_REJECT_UNAUTHORIZED}
+      context: .
+      dockerfile: Dockerfiles/Dockerfile-management-server
+    image: ${REPOSITORY}/${EDUMEET_MGMT_SERVER}:${TAG}
+    depends_on:
+    - edumeet-db
+  keycloak:
+    env_file: .env
+    container_name: edumeet_keycloak
+    volumes:
+    - ./certs:/opt/keycloak/conf
+    - ./configs/kc:/opt/keycloak/data/import
+    - ./keycloak-data:/opt/keycloak/data
+    image: quay.io/keycloak/keycloak:25.0.6-0
+    command:
+    - start
+    - --import-realm
+    restart: unless-stopped
+volumes:
+  edumeet-db:
+    driver: local
+  edumeet-db-data:
+    driver: local
+  keycloak-data: null
